@@ -1,31 +1,39 @@
-import numpy as np
-import json
+# Import the dependencies.
+
+# Import the dependencies.
+
+import warnings
 import sqlalchemy
 from sqlalchemy.ext.automap import automap_base
 from sqlalchemy.orm import Session
 from sqlalchemy import create_engine, func
-import datetime as dt
-from flask import Flask, jsonify, Response
 
+from flask import Flask, jsonify
+import datetime as dt
 
 #################################################
 # Database Setup
 #################################################
 engine = create_engine("sqlite:///Resources/hawaii.sqlite")
 
+
 # reflect an existing database into a new model
 Base = automap_base()
-# reflect the tables
-Base.prepare(engine, reflect=True)
 
-# Save reference to the table
-MS = Base.classes.measurement
-ST = Base.classes.station
+# reflect the tables
+
+Base.prepare(autoload_with=engine)
+
+# Save references to each table
+
+Measurement = Base.classes.measurement
+
+Station = Base.classes.station
+
+# Create our session (link)
 
 session = Session(engine)
-session.query(MS.date).order_by(MS.date.desc()).first()
-year_ago = dt.date(2017, 8, 23) - dt.timedelta(days=365)
-session.close()
+
 #################################################
 # Flask Setup
 #################################################
@@ -36,126 +44,128 @@ app = Flask(__name__)
 # Flask Routes
 #################################################
 
+# all API routes available
+
 @app.route("/")
-def home():
-    """List all available api routes."""
+def welcome():
+    """List all available API routes."""
     return (
-       
-        
+        "Available Routes:<br/>"
         "<a href='/api/v1.0/precipitation'>/api/v1.0/precipitation</a><br/>"
         "<a href='/api/v1.0/stations'>/api/v1.0/stations</a><br/>"
         "<a href='/api/v1.0/tobs'>/api/v1.0/tobs</a><br/>"
-        "<a href='/api/v1.0/start'>/api/v1.0/start</a><br/>"
-        "<a href='/api/v1.0/start_end'>/api/v1.0/start/end</a>"
+        "<a href='/api/v1.0/temp/start=<start>'>/api/v1.0/temp/start=<start></a><br>"
+        "<strong>Sample you have to choose start date Example:</strong> /api/v1.0/temp/start=2017-01-01<br/>"
+        "<a href='/api/v1.0/temp/start=<start>/&end=<end>'>/api/v1.0/temp/start=<start>/&end=<end></a><br>"
+        "To access temperature data from start date to end date, use the following format: /api/v1.0/temp/start=YYYY-MM-DD/&end=YYYY-MM-DD<br/>"
+        
+        "<strong>Example:</strong> /api/v1.0/temp/start=2017-01-01/&end=2017-12-31"
     )
 
+# API route that shows precipitation for every day for the most recent year
 
 @app.route("/api/v1.0/precipitation")
-def precipitation():
-    # Create our session (link) from Python to the DB
-    session = Session(engine)
+def get_precipitation():
 
-    """Return a list """
-    # Query all passengers
-    results = session.query(MS.date, MS.prcp).all()
+    prev_year = dt.date(2017, 8, 23) - dt.timedelta(days=234)
 
+
+    precipitation_query = session.query(Measurement.date, Measurement.prcp).\
+        filter(Measurement.date >= prev_year).all()
+    
     session.close()
 
-# Create a dictionary from the row data and append to a list 
-    all_prcp = []
-    for result in results:
-        prcp_dict = {}
-        prcp_dict["date"] = result[0]
-        prcp_dict["prcp"] = result[1]
-        all_prcp.append(prcp_dict)
+    precipitation_dict = {date: prcp for date, prcp in precipitation_query}
 
-    return jsonify(all_prcp)
+    return jsonify(precipitation_dict)
 
+# API route that shows a dictionary of all the stations in the table
 
 @app.route("/api/v1.0/stations")
-def stations():
-    # Create our session (link) from Python to the DB
-    session = Session(engine)
+def get_stations():
 
-    """Return a list of stations """
-    # Query all stations
-    results = session.query(ST.station).group_by(ST.id).all()
+    stations_query = session.query(Measurement.station).\
+        group_by(Measurement.station).all()
+
+    station_dict = [{'station': station[0]} for station in stations_query]
 
     session.close()
 
-    # Create a list of all_stations
-    all_stations = []
-    for result in results:
-        st_dict = {}
-        st_dict["station"] = result[0]
-        all_stations.append(st_dict)
-        
-        return jsonify(all_stations)
+    return jsonify(station_dict)
+
+# API route that shows most recent year's temperature for station: USC00519281
 
 @app.route("/api/v1.0/tobs")
-def tobs():
-    # Create our session (link) from Python to the DB
-    session = Session(engine)
+def get_tobs():
 
-    """Return a list of stations """
-    # Query all dates and temperature observations of the most active station for the last year of data
-    results = session.query(MS.date, MS.tobs).filter(MS.station == 'USC00519281').filter(MS.date >= year_ago).all()
+    prev_year = dt.date(2017, 8, 23) - dt.timedelta(days=234)
 
-    session.close()
-
-    # Create a list of all_stations
-    active_station = []
-    for result in results:
-        active_dict = {}
-        active_dict["date"] = result[0]
-        active_dict["tobs"] = result[1]
-        active_station.append(active_dict)
-        
-        return jsonify(active_station)
-
-@app.route("/api/v1.0/start")
-def start():
-    # Create our session (link) from Python to the DB
-    session = Session(engine)
-
-    """Return a list of agg data"""
-    # Query TMIN, TAVG, and TMAX for all dates greater than and equal to the start date
-    results = session.query(func.min(MS.tobs), func.max(MS.tobs), func.avg(MS.tobs)).filter(MS.date >= year_ago).all()
+    tobs_query = session.query(Measurement.tobs, Measurement.date).\
+                    filter(Measurement.station == 'USC00519281').\
+                    filter(Measurement.date >= prev_year).all()
 
     session.close()
 
-    # Create a list of min, max, and avg
-    agg_data = []
-    for result in results:
-        agg_dict = {}
-        agg_dict["MIN"] = result[0]
-        agg_dict["MAX"] = result[1]
-        agg_dict["AVG"] = result[2]
-        agg_data.append(agg_dict)
-        
-        return jsonify(agg_data)
+    tobs_dict = {date: tobs for tobs, date in tobs_query}
 
-@app.route("/api/v1.0/start_end")
-def start_end():
-    # Create our session (link) from Python to the DB
+    return jsonify(tobs_dict)
+
+# API route that shows most min temperature, the avg temperature, and the max temperature of Hawaii starting in 2015 to most recent date
+
+@app.route("/api/v1.0/temp/start=<start>")
+def start_temperature(start):
+     # Convert the start date string to a datetime object
+    try:
+        start = dt.datetime.strptime(start, "%Y-%m-%d").date()
+    except ValueError:
+        return jsonify({"error": "Invalid date format. Use YYYY-MM-DD."}), 400
+    
     session = Session(engine)
-    today = dt.datetime(2016, 8, 23)
-    """Return a list of agg data"""
-    # Query TMIN, TAVG, and TMAX for all dates between dates
-    results = session.query(func.min(MS.tobs), func.max(MS.tobs), func.avg(MS.tobs)).filter(MS.date >= year_ago).filter(MS.date <= today).all()
-
-    session.close()
-
-    # Create a list of min, max, and avg
-    agg_data = []
-    for result in results:
-        agg_dict = {}
-        agg_dict["MIN"] = result[0]
-        agg_dict["MAX"] = result[1]
-        agg_dict["AVG"] = result[2]
-        agg_data.append(agg_dict)
+    
+    results = session.query(func.min(Measurement.tobs), func.max(Measurement.tobs), func.avg(Measurement.tobs)).\
+        filter(Measurement.date >= start).all()
         
-        return jsonify(agg_data)
+    session.close()
+    
+    #Store list of tmin, tmax, tavg
+    list_data = []
+    for result in results:
+        list_dict = {}
+        list_dict["TMIN"] = result[0]
+        list_dict["TMAX"] = result[1]
+        list_dict["TAVG"] = round(result[2],2)
+        list_data.append(list_dict)
+        
+    response_data = {"Your selected date": str(start), "Here is the temperature data": list_data}
+    
+    return jsonify(response_data)
 
-if __name__ == '__main__':
-    app.run(debug=True)
+@app.route("/api/v1.0/temp/start=<start>/&end=<end>")
+def temperature_range(start, end ):
+    try:
+        # Convert start and end date strings to datetime objects
+        start = dt.datetime.strptime(start, "%Y-%m-%d").date()
+        end = dt.datetime.strptime(end, "%Y-%m-%d").date()
+    except ValueError:
+        return jsonify({"error": "Invalid date format. Use YYYY-MM-DD."}), 400
+    
+    session = Session(engine)
+    
+    results = session.query(func.min(Measurement.tobs), func.max(Measurement.tobs), func.avg(Measurement.tobs)).\
+        filter(Measurement.date >= start, Measurement.date <= end).all()
+    
+    session.close()
+    
+    temperature_range = []
+    for result in results:
+        temperature_dict = {}
+        temperature_dict["TMIN"] = result[0]
+        temperature_dict["TMAX"] = result[1]
+        temperature_dict["TAVG"] = round(result[2],2)
+        temperature_range.append(temperature_dict)
+        
+    response_date = {"Your selected date": f"{start} to {end}", "Here is the temperature data": temperature_range}    
+    return jsonify(response_date)
+    
+
+app.run(debug=True)
